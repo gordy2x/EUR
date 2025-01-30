@@ -1,0 +1,560 @@
+---
+title: "Analysis summary"
+author: "Gordana"
+date: '`r Sys.Date()`'
+output:
+  html_document: default
+  word_document: default
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+library(tidyverse)
+library(rpart.plot)
+library(grpreg)
+library(glmnet)
+library(table1)
+library(OptimalCutpoints)
+library(kableExtra)
+```
+
+
+
+Load fitted models
+
+```{r}
+# load fitted models
+load( file ="../results/diab_tree")
+load( file ="../results/diab_lasso")
+load( file ="../results/diab_elastic")
+
+```
+
+
+
+
+### Table 1 (see also Table1.csv)
+```{r}
+
+diab_full <- read.csv("../data/clean_modsel.csv", stringsAsFactors =TRUE) %>% 
+  mutate(charlson = exp(lcharlson) - 1) %>% 
+  dplyr::select( -patient_mrn, -ID, -admit_dttm, , - represent) %>% 
+  relocate(readmit) %>% # put readmit in first column
+  mutate(age = as.integer(age),
+         bgl_min=relevel(bgl_min, ">=4"),
+         med_surg = factor(med_surg, levels = 1:2, labels = c("Medical", "Surgical")),
+         emergency = factor(emergency, levels = 1:2, labels = c("Emerg", "NotEmerg")),
+         charlson = as.integer(charlson),
+         disadvantage = as.integer(disadvantage),
+         age_s = (age - 70)/10, # scaling
+         disadvantage_s = (disadvantage-1000)/50,
+         readmit = ifelse(readmit==1,"Yes","No")) # scaling
+
+T1 <- table1( ~   age + sex + ethnicity + dmtypes + charlson +
+                             insulin + last90days + med_surg+
+                             emergency + MaritalStatus + bgl_max + bgl_min + interaction(bgl_max,bgl_min)+
+                             disadvantage +  length_of_stay_days | osp_full_name +readmit  ,
+              overall = FALSE,
+              data=diab_full,
+              render.continuous=c( .="Median [Q1, Q3]"))
+
+
+T1
+
+write.csv(as.data.frame(T1), file = "../results/Table1.csv", row.names = FALSE)
+
+```
+
+
+
+### Figure 2
+```{r, fig.width=10}
+train_per <- read.csv("../results/model_pred_train.csv") %>% 
+  mutate(data = "Training - POW 80%") %>% 
+  dplyr::select(AUC:UCL, model, data)
+test_per <- read.csv("../results/model_pred_test.csv")  %>% 
+  mutate(data = "Test - POW 20%")%>% 
+  dplyr::select(AUC:UCL, model, data)
+validation_per <- read.csv("../results/model_pred_validation.csv")  %>% 
+  mutate(data = "Validation - St George")%>% 
+  dplyr::select(AUC:UCL, model, data)
+
+
+all_AUC <- bind_rows(train_per, test_per, validation_per)
+
+Table2 <- all_AUC %>% 
+  transmute(data,
+            model,
+            `AUC (95% CI)` = paste0(round(AUC,3)," (",round(LCL,3),", ", round(UCL,3),")")) 
+
+Table2 
+
+
+
+
+write.csv(Table2, file = "../results/Table2.csv", row.names = F)
+
+```
+
+
+```{r}
+library(forestplot)
+
+models = data.frame(model = c("tree", "gp_lasso","elastic","nnet"),
+           model_nice = c("Classification tree", "Group Lasso","Elastic net","Neural network"))
+
+
+all_AUC <- all_AUC %>% 
+  mutate(interval = paste0(format(round(AUC, 3), nsmall = 3), " ",
+                          "(",format(round(LCL, 3), nsmall = 3), " - ", 
+                          format(round(UCL,3), nsmall = 3),")")) %>% 
+  mutate(data_single = ifelse(model == "tree", data, NA)) %>% 
+  left_join(models)
+
+png("../results/AUCplot.png", width=8, height=4,units = "in",
+    res = 300)
+
+
+all_AUC |>
+  forestplot(labeltext = c(data_single, model_nice, interval),
+             mean = AUC,
+             lower = LCL,
+             upper = UCL,
+             zero = NA,
+             mar = unit(rep(5, times = 4), "mm"),
+             xticks = seq(0.55,0.8, by = 0.05),
+             boxsize = 0.2,
+            lineheight =  unit(5,"mm"),
+             xlab = "AUC (95% CI)",
+             lwd.ci	= 2) %>% 
+  fp_add_header(data_single = c("Data")|> fp_txt_plain(),
+                model_nice = c("Model")|> fp_txt_plain(),
+                interval = c("AUC (95% CI)")|> fp_txt_plain()) %>% 
+  fp_set_style(align = "lllr",
+               hrz_lines = "#999999",
+               txt_gp = fpTxtGp(cex=0.85,
+                                ticks=gpar(cex=0.8),
+                                xlab = gpar(cex = 0.8)),
+               axes = gpar(cex = 0.85)) 
+
+
+
+dev.off()
+
+```
+
+### Table 3 and 4
+
+ 
+```{r include = F}
+spec_at_sens <- data.frame()
+
+for(model in c("lasso", "elastic", "nnet"))
+{
+  for(dat in c("train", "test", "validation")){
+    spec_at_sens_loc = read.csv(paste0("../results/auc_tab_",model,"_",dat, ".csv")) %>% 
+      dplyr::select(-X) %>% 
+      mutate(model = model,
+            data = dat, selected = 0)
+    sel_ind <- c(max(which(spec_at_sens_loc$sensitivities >= 0.25)),
+              max(which(spec_at_sens_loc$sensitivities >= 0.50)),
+              max(which(spec_at_sens_loc$sensitivities >= 0.75)))
+    spec_at_sens_loc$selected[sel_ind] = 1
+    
+    spec_at_sens <- spec_at_sens %>% 
+      rbind(spec_at_sens_loc)
+  }
+}
+
+
+tree_spec <- data.frame()
+for(dat in c("train", "test", "validation")){
+    tree_spec = read.csv(paste0("../results/auc_tab_tree_",dat, ".csv")) %>% 
+      dplyr::select(-X) %>% 
+      mutate(model = "tree",
+            data = dat) %>% 
+      rbind(tree_spec) 
+}
+
+tree_spec <- tree_spec %>% 
+      mutate(selected = ifelse(is.finite(score), 1, 0))
+
+all_roc <- spec_at_sens %>%
+  rbind(tree_spec) %>% 
+  arrange(data, sensitivities) %>% 
+  mutate(data = case_when(data == "train" ~ "Training - POW 80%",
+                          data == "test" ~ "Test - POW 20%",
+                          data == "validation" ~ "External validation - St George"))
+
+
+
+
+
+
+```
+
+
+
+```{r}
+Table3 <- all_roc %>% 
+  filter(selected == 1) %>% 
+  dplyr::select(- selected) %>% 
+  arrange(data, model) %>% 
+  mutate_if(is.numeric, ~ round(., digits = 3))
+
+
+
+
+Table3 <- Table3 %>% 
+  arrange(desc(data)) 
+
+
+Table3%>% 
+  filter(data != "Training - POW 80%") %>% 
+  mutate(data = substr(data, 1,10))
+write.csv(Table3, file = "../results/Table3.csv", row.names = F)
+
+
+  
+
+```
+
+#### Proportion of patients that need to be seen 
+
+
+Calulation
+
+- take all POW data (combined) and All St George data
+- take score cutoffs from Table 3
+- calculate what proportion of patients are greater than the cut-off from table 3, i.e. would be seen. 
+
+
+```{r}
+data_with_pred_train <- read.csv(file = paste0("../results/data_with_pred_train.csv" ))
+data_with_pred_test <- read.csv(file = paste0("../results/data_with_pred_test.csv" ))
+data_with_pred_STG <- read.csv(file = paste0("../results/data_with_pred_validation.csv" ))
+
+data_with_pred_POW = bind_rows(data_with_pred_train, data_with_pred_test)
+
+
+training_scores <- Table3 %>% 
+  filter(data == "Training - POW 80%")
+
+training_scores$percent_patients = NA
+
+training_scores$percent_patients[training_scores$model== "elastic"]<- with(training_scores %>% filter(model == "elastic"),
+     apply(as.matrix(score), 1, function(x) mean(data_with_pred_POW$pred_elastic > x)))
+
+training_scores$percent_patients[training_scores$model== "lasso"]<- with(training_scores %>% filter(model == "lasso"),
+     apply(as.matrix(score), 1, function(x) mean(data_with_pred_POW$pred_lasso > x)))
+
+training_scores$percent_patients[training_scores$model== "nnet"]<- with(training_scores %>% filter(model == "nnet"),
+     apply(as.matrix(score), 1, function(x) mean(data_with_pred_POW$pred_nnet > x)))
+
+training_scores$percent_patients[training_scores$model== "tree"]<- with(training_scores %>% filter(model == "tree"),
+     apply(as.matrix(score), 1, function(x) mean(data_with_pred_POW$pred_tree > x)))
+
+
+
+validation_scores <- Table3 %>% 
+  filter(data == "External validation - St George")
+validation_scores$score = training_scores$score
+
+
+validation_scores$percent_patients[validation_scores$model== "elastic"]<- with(validation_scores %>% filter(model == "elastic"),
+     apply(as.matrix(score), 1, function(x) mean(data_with_pred_STG$pred_elastic > x)))
+
+validation_scores$percent_patients[validation_scores$model== "lasso"]<- with(validation_scores %>% filter(model == "lasso"),
+     apply(as.matrix(score), 1, function(x) mean(data_with_pred_STG$pred_lasso > x)))
+
+validation_scores$percent_patients[validation_scores$model== "nnet"]<- with(validation_scores %>% filter(model == "nnet"),
+     apply(as.matrix(score), 1, function(x) mean(data_with_pred_STG$pred_nnet > x)))
+
+validation_scores$percent_patients[validation_scores$model== "tree"]<- with(validation_scores %>% filter(model == "tree"),
+     apply(as.matrix(score), 1, function(x) mean(data_with_pred_STG$pred_tree > x)))
+
+
+prop_screened = bind_rows(training_scores, validation_scores) %>% 
+  dplyr::select(data,score,sensitivities,model, percent_patients) %>% 
+  mutate(data = ifelse(data == "Training - POW 80%", "POW", "St George"))
+
+prop_screened
+
+write.csv(prop_screened, file = "../results/Table3B.csv", row.names = F)
+
+
+```
+
+
+
+
+#### Tree
+
+Note - The  circles should have the probability of readmission in that group, however this plot is automatically done from the model, and has weighted sample not the raw data, so it is very overestimated.  The true probabilities are below. There is no way to modify this plot in R, will need to be replotted manually in say Word, with the probabilities swapped out from below. 
+
+
+```{r}
+load( file ="../results/diab_tree")
+rpart.plot(diab_tree, type=4, extra=7,box.palette=0)
+
+
+```
+
+Lookupt table for true for corrected probabilities
+```{r}
+
+# training
+diab_train <- read.csv("../data/diabetes_clean_train.csv", stringsAsFactors =TRUE) %>%
+  mutate(charlson = exp(lcharlson) - 1) %>%
+  dplyr::select( -patient_mrn, -ID, -admit_dttm, -osp_full_name, - represent) %>%
+  relocate(readmit) %>% # put readmit in first column
+  mutate(age = as.integer(age), # for tree model
+         bgl_min=relevel(bgl_min, ">=4"),
+         med_surg = factor(med_surg, levels = 1:2, labels = c("Medical", "Surgical")),
+         emergency = factor(emergency, levels = 1:2, labels = c("Emerg", "NotEmerg")),
+         emergency = relevel(emergency, 2),
+         charlson = as.integer(charlson), # for tree model
+         disadvantage = as.integer(disadvantage), # for tree model
+         length_of_stay_days = as.integer(length_of_stay_days),
+         ethnicity = relevel(ethnicity, "aust"),
+         age_s = (age - 70)/10, # scaling
+         age,
+         lcharlson_s = 2*(lcharlson - 0.5), # scaling
+         disadvantage_s = (disadvantage-1000)/50,
+         log_los_days_s = log(length_of_stay_days) - 1.5) # scaling
+
+rel_01= table(diab_train$readmit)
+w0=rel_01[2]/rel_01[1]
+phat=diab_tree$frame
+a=w0*phat$yval2[,5]/(1-phat$yval2[,5])
+data.frame(var = phat$var,  uncorrected = round(phat$yval2[,5], 2), corrected = round(a/(1+a),2))
+
+```
+
+
+### Table 2 - Variable importance
+
+Elastic net and group lasso
+
+```{r}
+
+X <- model.matrix(~ age_s + sex + ethnicity + dmtypes + lcharlson + 
+                    insulin + last90days + med_surg+
+                    emergency + MaritalStatus + 
+                    bgl_max+bgl_min + disadvantage_s + log_los_days_s,
+                  data = diab_train)[,-1]
+
+
+
+Table4 <- data.frame(gp_lasso_coef = as.matrix(coef(diab_lasso, s = "lambda.min"))[-1, 1] * apply(X, 2, sd),
+                     elastic_coef = as.matrix(coef(diab_elastic, s = "lambda.min"))[-1, 1] * apply(X, 2, sd)) %>% 
+  transmute(`Group lasso coefficient` = round(gp_lasso_coef,3),
+            `Elastic net coefficient` = round(elastic_coef,3)) %>%  
+  mutate(`Group lasso coefficient` = ifelse(`Group lasso coefficient` == 0, NA, `Group lasso coefficient`),
+         `Elastic net coefficient` = ifelse(`Elastic net coefficient` == 0, NA, `Elastic net coefficient`)) %>% 
+  mutate(glasso_rank = rank(-abs(`Group lasso coefficient`)),
+         elastic_rank = rank(-abs(`Elastic net coefficient`)))
+
+Table4 
+write.csv(Table4, file = "../results/Table4.csv")
+
+```
+
+Neural net
+
+
+
+```{r}
+Table6 <- read.csv("../results/model/var_imp_results.csv") %>% 
+  mutate(nnet_rank = rank(-abs(var_imp_final)))
+Table6 %>% 
+  arrange(nnet_rank)
+
+write.csv(Table6, file = "../results/Table6.csv", row.names = F)
+
+```
+
+
+
+ tree
+
+
+```{r}
+
+tree_import = t(t(diab_tree$variable.importance)) %>% 
+  as.data.frame() %>% 
+  mutate(tree_rank = rank(-abs(V1))) %>% 
+  dplyr::select(-V1)
+tree_import
+```
+
+### Misc
+
+#### Flagged patients
+
+Overlap of patients with high/low BGL and those flagged for review by models
+
+```{r}
+
+
+data_with_pred_POW = data_with_pred_POW %>% 
+  mutate(bgl_lt5gt15_both = ifelse(bgl_max == ">15" & bgl_min == "<4","both","no"),
+         bgl_lt5gt15_either = ifelse(bgl_max == ">15" | bgl_min == "<4","either","no"),
+         osp_full_name = "Prince of Wales Hospital",
+         lasso_50 = ifelse(pred_lasso>-2.361,"screen","no"),
+         lasso_75 = ifelse(pred_lasso>-2.893,"screen","no"),
+         lasso_25 = ifelse(pred_lasso>-1.911,"screen","no"))
+
+
+with(data_with_pred_POW, table(bgl_lt5gt15_both, lasso_50))
+with(data_with_pred_POW, table(bgl_lt5gt15_either, lasso_50))
+with(data_with_pred_POW, table(bgl_lt5gt15_both, lasso_75))
+with(data_with_pred_POW, table(bgl_lt5gt15_either, lasso_75))
+with(data_with_pred_POW, table(bgl_lt5gt15_both, lasso_25))
+with(data_with_pred_POW, table(bgl_lt5gt15_either, lasso_25))
+
+with(data_with_pred_POW, prop.table(table(bgl_lt5gt15_either, readmit),margin = 1))
+with(data_with_pred_POW, prop.table(table(lasso_50, readmit),margin = 1))
+
+with(data_with_pred_POW, prop.table(table(lasso_25, readmit),margin = 1))
+with(data_with_pred_POW, prop.table(table(lasso_75, readmit),margin = 1))
+
+```
+
+#### Raw coeficients for equations
+
+```{r }
+
+Table5 <- data.frame(gp_lasso_coef = as.matrix(coef(diab_lasso, s = "lambda.min"))[, 1] ,
+                     elastic_coef = as.matrix(coef(diab_elastic, s = "lambda.min"))[, 1] ) %>% 
+  # filter(!(gp_lasso_coef == 0 & elastic_coef == 0))%>%  
+  rownames_to_column(var = "predictor") %>% 
+  pivot_longer(2:3, names_to = "model") %>% 
+  pivot_wider(names_from = predictor, values_from = value) %>% 
+  mutate(age = age_s/10,
+         disadvantage = disadvantage_s/50,
+         log_los_days = log_los_days_s,
+         med_surgMed = -med_surgSurgical,
+         sex_Male = -sexNot_Male,
+         insulinInsulin  = - insulinNo_insulin ,
+         Intercept = `(Intercept)`-70*age - 1000*disadvantage - 1.5*log_los_days - med_surgMed - sex_Male - insulinInsulin) %>% 
+  relocate(age, .before = age_s) %>% 
+  relocate(disadvantage, .before = disadvantage_s) %>% 
+  relocate(log_los_days, .before = log_los_days_s) %>% 
+  relocate(Intercept, .before = `(Intercept)`) %>% 
+  dplyr::select(-age_s, -disadvantage_s, -log_los_days_s, -`(Intercept)`, -med_surgSurgical,
+                - sexNot_Male, - insulinNo_insulin) 
+  
+
+Table5 <- t(Table5[,-1])
+
+### calculate odds ratios here
+
+
+
+colnames(Table5) = c('Group lasso coefficient', 'Elastic net coefficient')
+Table5 <- as.data.frame(Table5) %>% 
+  mutate(GL_or = exp(`Group lasso coefficient`),
+         EN_or = exp(`Elastic net coefficient`))
+
+Table5
+write.csv(Table5, file = "../results/Table5.csv")
+
+```
+
+
+
+
+```{r, echo=FALSE, eval = FALSE}
+
+#This checks the above corrections to the formula are correct.
+
+coef_lasso_mod <- as.matrix(coef(diab_lasso, s = "lambda.min"))
+X_mod <- model.matrix(~ age_s + sex + ethnicity + dmtypes + lcharlson + insulin + last90days + med_surg + emergency + MaritalStatus + 
+                        bgl_max  + bgl_min + disadvantage_s + log_los_days_s,
+                  data = diab_train)
+
+cbind(rownames(coef_lasso_mod),colnames(X_mod))
+
+mod_pred = X_mod%*%coef_lasso_mod
+
+diab_train_raw = diab_train %>% 
+  mutate(med_surg = relevel(as.factor(med_surg), ref = "Surgical"),
+         sex = relevel(as.factor(sex), ref = "Not_Male"),
+         insulin = relevel(as.factor(insulin), ref = "No_insulin"))
+
+
+coef_lasso_raw = as.matrix(Table5[,1])
+X_raw <- model.matrix(~  age + ethnicity + dmtypes + lcharlson + last90days + emergency + MaritalStatus + bgl_max + bgl_min + 
+                        disadvantage + log(length_of_stay_days) + med_surg + sex + insulin,
+                      data = diab_train_raw)
+cbind(rownames(coef_lasso_raw),colnames(X_raw))
+
+raw_pred = X_raw%*%coef_lasso_raw
+
+all.equal(mod_pred, raw_pred)
+
+```
+
+
+
+
+
+
+#### Readmission rates 
+
+Per patient (based on last admission)
+
+```{r}
+diabetes_full <- read.csv("../data/clean_modsel.csv")
+
+
+diabetes_full %>% 
+  group_by(osp_full_name) %>% 
+  summarise(patients_readmitted = mean(readmit),
+            patients_represented = mean(represent))
+
+```
+
+Per admission
+
+```{r}
+
+diabetes_alladmit <- read.csv("../data/clean_alladmit.csv")
+
+
+diabetes_alladmit %>% 
+  group_by(osp_full_name) %>% 
+  summarise(admissions_readmitted = mean(readmit),
+            admissions_represented = mean(represent))
+
+
+
+```
+
+
+
+## References
+
+Agresti, Alan. Categorical data analysis. Vol. 792. John Wiley & Sons, 2012.
+
+Altmann, A., Toloşi, L., Sander, O., & Lengauer, T. (2010). Permutation importance: a corrected feature importance measure. Bioinformatics, 26(10), 1340-1347.
+
+Terry Therneau and Beth Atkinson (2019). rpart: Recursive Partitioning and Regression Trees. R package
+  version 4.1-15. https://CRAN.R-project.org/package=rpart
+  
+Breheny P and Huang J (2015). Group descent algorithms for nonconvex penalized linear and logistic
+  regression models with grouped predictors. Statistics and Computing, 25: 173-187.
+  
+Schisterman, E.F., Perkins, N.J., Liu, A. and Bondell, H. (2005). Optimal cutpoint and its corresponding Youden index to discriminate individuals using pooled blood samples. Epidemiology 16, 73–81.
+
+Jerome Friedman, Trevor Hastie, Robert Tibshirani (2010). Regularization Paths for Generalized Linear
+  Models via Coordinate Descent. Journal of Statistical Software, 33(1), 1-22. URL
+  http://www.jstatsoft.org/v33/i01/.
+  
+Monica Lopez-Raton, Maria Xose Rodriguez-Alvarez, Carmen Cadarso Suarez, Francisco Gude
+  Sampedro (2014). OptimalCutpoints: An R Package for Selecting Optimal Cutpoints in
+  Diagnostic Tests. Journal of Statistical Software, 61(8), 1-36. DOI 10.18637/jss.v061.i08.
+  
+  Intrator O. and Intrator N. (1993) Using Neural Nets for Interpretation of Nonlinear Models. Proceedings of the Statistical Computing Section, 244-249 San Francisco: American Statistical Society (eds.)
