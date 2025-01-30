@@ -118,7 +118,7 @@ diabetes_full %>%
 write.csv(diabetes_full,"data/clean_modsel.csv",row.names = FALSE)
 
 # print summary of dataset
-summarytools::view(dfSummary(diabetes_full), file="results/readmission/data_checks/data_summary_clean_modsel.html")
+summarytools::view(dfSummary(diabetes_full), file="data/data_summary_clean_modsel.html")
 #print summary of missing data
 
 

@@ -25,9 +25,9 @@ Load fitted models
 
 ```{r}
 # load fitted models
-load( file ="../results/diab_tree")
-load( file ="../results/diab_lasso")
-load( file ="../results/diab_elastic")
+load( file ="../data/derived/diab_tree")
+load( file ="../data/derived/diab_lasso")
+load( file ="../data/derived/diab_elastic")
 
 ```
 
@@ -70,13 +70,13 @@ write.csv(as.data.frame(T1), file = "../results/Table1.csv", row.names = FALSE)
 
 ### Figure 2
 ```{r, fig.width=10}
-train_per <- read.csv("../results/model_pred_train.csv") %>% 
+train_per <- read.csv("../data/derived/model_pred_train.csv") %>% 
   mutate(data = "Training - POW 80%") %>% 
   dplyr::select(AUC:UCL, model, data)
-test_per <- read.csv("../results/model_pred_test.csv")  %>% 
+test_per <- read.csv("../data/derived/model_pred_test.csv")  %>% 
   mutate(data = "Test - POW 20%")%>% 
   dplyr::select(AUC:UCL, model, data)
-validation_per <- read.csv("../results/model_pred_validation.csv")  %>% 
+validation_per <- read.csv("../data/derived/model_pred_validation.csv")  %>% 
   mutate(data = "Validation - St George")%>% 
   dplyr::select(AUC:UCL, model, data)
 
@@ -153,7 +153,7 @@ spec_at_sens <- data.frame()
 for(model in c("lasso", "elastic", "nnet"))
 {
   for(dat in c("train", "test", "validation")){
-    spec_at_sens_loc = read.csv(paste0("../results/auc_tab_",model,"_",dat, ".csv")) %>% 
+    spec_at_sens_loc = read.csv(paste0("../data/derived/auc_tab_",model,"_",dat, ".csv")) %>% 
       dplyr::select(-X) %>% 
       mutate(model = model,
             data = dat, selected = 0)
@@ -170,7 +170,7 @@ for(model in c("lasso", "elastic", "nnet"))
 
 tree_spec <- data.frame()
 for(dat in c("train", "test", "validation")){
-    tree_spec = read.csv(paste0("../results/auc_tab_tree_",dat, ".csv")) %>% 
+    tree_spec = read.csv(paste0("../data/derived/auc_tab_tree_",dat, ".csv")) %>% 
       dplyr::select(-X) %>% 
       mutate(model = "tree",
             data = dat) %>% 
@@ -231,9 +231,9 @@ Calulation
 
 
 ```{r}
-data_with_pred_train <- read.csv(file = paste0("../results/data_with_pred_train.csv" ))
-data_with_pred_test <- read.csv(file = paste0("../results/data_with_pred_test.csv" ))
-data_with_pred_STG <- read.csv(file = paste0("../results/data_with_pred_validation.csv" ))
+data_with_pred_train <- read.csv(file = paste0("../data/derived/data_with_pred_train.csv" ))
+data_with_pred_test <- read.csv(file = paste0("../data/derived/data_with_pred_test.csv" ))
+data_with_pred_STG <- read.csv(file = paste0("../data/derived/data_with_pred_validation.csv" ))
 
 data_with_pred_POW = bind_rows(data_with_pred_train, data_with_pred_test)
 
@@ -295,7 +295,7 @@ Note - The  circles should have the probability of readmission in that group, ho
 
 
 ```{r}
-load( file ="../results/diab_tree")
+load( file ="../data/derived/diab_tree")
 rpart.plot(diab_tree, type=4, extra=7,box.palette=0)
 
 
@@ -366,12 +366,12 @@ Neural net
 
 
 ```{r}
-Table6 <- read.csv("../results/model/var_imp_results.csv") %>% 
+Table6 <- read.csv("../data/derived/model/var_imp_results.csv") %>% 
   mutate(nnet_rank = rank(-abs(var_imp_final)))
 Table6 %>% 
   arrange(nnet_rank)
 
-write.csv(Table6, file = "../results/Table6.csv", row.names = F)
+write.csv(Table6, file = "../data/derived/Table6.csv", row.names = F)
 
 ```
 

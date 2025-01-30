@@ -83,7 +83,7 @@ if(fit){
   
   # plot the tree, and save
   rpart.plot(diab_tree, type=4, extra=7,box.palette=0)
-  save(diab_tree, file ="results/diab_tree")
+  save(diab_tree, file ="data/derived/diab_tree")
   
   
   
@@ -103,7 +103,7 @@ if(fit){
   plot(diab_lasso)
   
   # save model
-  save(diab_lasso, file ="results/diab_lasso")
+  save(diab_lasso, file ="data/derived/diab_lasso")
   
   
   ## elastic net
@@ -128,16 +128,16 @@ if(fit){
   plot(diab_elastic)
   
   # check model
-  save(diab_elastic, file ="results/diab_elastic")
+  save(diab_elastic, file ="data/derived/diab_elastic")
   
   
 
   
 } else {
   
-  load( file ="results/diab_tree")
-  load( file ="results/diab_lasso")
-  load( file ="results/diab_elastic")
+  load( file ="data/derived/diab_tree")
+  load( file ="data/derived/diab_lasso")
+  load( file ="data/derived/diab_elastic")
 }
 
   
@@ -187,10 +187,10 @@ if(fit){
 
 
   #load model weights
-  layer_1_weights <- read.csv("results/model/lin1.weight.csv")
-  layer_2_weights <- read.csv("results/model/lin2.weight.csv")
-  layer_1_bias <- read.csv("results/model/lin1.bias.csv")
-  layer_2_bias <- read.csv("results/model/lin2.bias.csv")
+  layer_1_weights <- read.csv("data/derived/model/lin1.weight.csv")
+  layer_2_weights <- read.csv("data/derived/model/lin2.weight.csv")
+  layer_1_bias <- read.csv("data/derived/model/lin1.bias.csv")
+  layer_2_bias <- read.csv("data/derived/model/lin2.bias.csv")
 
 
   
@@ -222,7 +222,7 @@ if(fit){
   
   print(perform)
   
-  write.csv(perform, "results/train_pred_cut.csv", row.names = F)
+  write.csv(perform, "data/derived/train_pred_cut.csv", row.names = F)
   
   
 

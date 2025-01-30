@@ -18,7 +18,7 @@ dat_source = "validation"# "test", "train" or "validation", "validation_up", "te
 
 
 # read in cutoffs for classification we calculated for training data
-cutoffs <-   read.csv("results/train_pred_cut.csv") %>% 
+cutoffs <-   read.csv("data/derived/train_pred_cut.csv") %>% 
   dplyr::select(model, cutoff)
 
 
@@ -51,15 +51,15 @@ X <- model.matrix(~ age_s + sex + ethnicity + dmtypes + lcharlson +
 
 
 # load fitted models
-load( file ="results/diab_tree")
-load( file ="results/diab_lasso")
-load( file ="results/diab_elastic")
+load( file ="data/derived/diab_tree")
+load( file ="data/derived/diab_lasso")
+load( file ="data/derived/diab_elastic")
 
 # #load model weights for nnet
-layer_1_weights <- read.csv("results/model/lin1.weight.csv")
-layer_2_weights <- read.csv("results/model/lin2.weight.csv")
-layer_1_bias <- read.csv("results/model/lin1.bias.csv")
-layer_2_bias <- read.csv("results/model/lin2.bias.csv")
+layer_1_weights <- read.csv("data/derived/model/lin1.weight.csv")
+layer_2_weights <- read.csv("data/derived/model/lin2.weight.csv")
+layer_1_bias <- read.csv("data/derived/model/lin1.bias.csv")
+layer_2_bias <- read.csv("data/derived/model/lin2.bias.csv")
 
 
 ###################### calculate model fit ####################
@@ -76,7 +76,7 @@ tree_stats = caret::confusionMatrix(data = factor(diab_data$pred_tree_bin),
                                     factor(diab_data$readmit),
                              positive = "1")
 roc_all <- roc(diab_data$readmit,diab_data$pred_tree,ci=TRUE,plot=FALSE)
-# write.csv(roc_all, file = paste0("results/roc_tab_tree_",dat_source,".csv" ))
+# write.csv(roc_all, file = paste0("data/derived/roc_tab_tree_",dat_source,".csv" ))
 
 
 
@@ -88,7 +88,7 @@ auc_tab = data.frame(score = roc_all$thresholds,
 
 
 
-write.csv(auc_tab, file = paste0("results/auc_tab_tree_",dat_source,".csv" ))
+write.csv(auc_tab, file = paste0("data/derived/auc_tab_tree_",dat_source,".csv" ))
 
 tree_roc <- roc_all$ci %>% 
   as.vector()
@@ -103,7 +103,7 @@ lasso_stats = caret::confusionMatrix(data = factor(diab_data$pred_lasso_bin),
                                     positive = "1")
 
 roc_all <- roc(diab_data$readmit,diab_data$pred_lasso,ci=TRUE,plot=FALSE)
-# write.csv(roc_all, file = paste0("results/roc_tab_lasso_",dat_source,".csv" ))
+# write.csv(roc_all, file = paste0("data/derived/roc_tab_lasso_",dat_source,".csv" ))
 
 auc_tab = data.frame(score = roc_all$thresholds,
                      sensitivities = roc_all$sensitivities,
@@ -111,7 +111,7 @@ auc_tab = data.frame(score = roc_all$thresholds,
   mutate(PPV = (sensitivities * prevalence) / ( (sensitivities * prevalence) + ((1 - specificities) * (1 - prevalence))),
          NPV = (specificities * (1 - prevalence)) / ( (specificities * (1 - prevalence)) + ((1 - sensitivities) * prevalence) )) 
 
-write.csv(auc_tab, file = paste0("results/auc_tab_lasso_",dat_source,".csv" ))
+write.csv(auc_tab, file = paste0("data/derived/auc_tab_lasso_",dat_source,".csv" ))
 
 
 
@@ -132,7 +132,7 @@ elastic_stats = caret::confusionMatrix(data = factor(diab_data$pred_elastic_bin)
                                      positive = "1")
 
 roc_all <- roc(diab_data$readmit,diab_data$pred_elastic,ci=TRUE,plot=FALSE)
-# write.csv(roc_all, file = paste0("results/roc_tab_elastic_",dat_source,".csv" ))
+# write.csv(roc_all, file = paste0("data/derived/roc_tab_elastic_",dat_source,".csv" ))
 # 
 
 auc_tab = data.frame(score = roc_all$thresholds,
@@ -142,7 +142,7 @@ auc_tab = data.frame(score = roc_all$thresholds,
          NPV = (specificities * (1 - prevalence)) / ( (specificities * (1 - prevalence)) + ((1 - sensitivities) * prevalence) )) 
 
 
-write.csv(auc_tab, file = paste0("results/auc_tab_elastic_",dat_source,".csv" ))
+write.csv(auc_tab, file = paste0("data/derived/auc_tab_elastic_",dat_source,".csv" ))
 
 elastic_roc <- roc_all$ci %>% 
   as.vector()
@@ -178,7 +178,7 @@ auc_tab = data.frame(score = roc_all$thresholds,
 nnet_roc <- roc_all$ci %>% 
   as.vector()
 
-write.csv(auc_tab, file = paste0("results/auc_tab_nnet_",dat_source,".csv" ))
+write.csv(auc_tab, file = paste0("data/derived/auc_tab_nnet_",dat_source,".csv" ))
 
 
 nnet_roc <- roc(diab_data$readmit,diab_data$pred_nnet,ci=TRUE,plot=FALSE)$ci %>% 
@@ -195,9 +195,9 @@ colnames(AUC) <- c("AUC","LCL", "UCL")
 AUC$model <- c("tree", "gp_lasso", "elastic",  "nnet")#
 
 
-write.csv(AUC, file = paste0("results/model_pred_",dat_source, ".csv" ),
+write.csv(AUC, file = paste0("data/derived/model_pred_",dat_source, ".csv" ),
           row.names = F)
 
-write.csv(diab_data, file = paste0("results/data_with_pred_",dat_source, ".csv" ),
+write.csv(diab_data, file = paste0("data/derived/data_with_pred_",dat_source, ".csv" ),
           row.names = F)
 
